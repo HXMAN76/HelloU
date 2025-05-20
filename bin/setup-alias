@@ -1,0 +1,54 @@
+#!/bin/bash
+# Script to set up the HelloU command alias for easy access to face-unlock
+
+set -e  # Exit on error
+
+# Get the directory of the script
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+FACE_UNLOCK_PATH="$PROJECT_DIR/bin/face-unlock"
+
+# Create symbolic link in /usr/local/bin for system-wide access
+if [ "$EUID" -eq 0 ]; then
+    echo "Creating system-wide HelloU command..."
+    ln -sf "$FACE_UNLOCK_PATH" /usr/local/bin/HelloU
+    chmod +x /usr/local/bin/HelloU
+    echo "✅ Created HelloU command system-wide!"
+else
+    echo "Creating user-local HelloU command..."
+    mkdir -p "$HOME/.local/bin"
+    ln -sf "$FACE_UNLOCK_PATH" "$HOME/.local/bin/HelloU"
+    chmod +x "$HOME/.local/bin/HelloU"
+    
+    # Add ~/.local/bin to PATH if not already there
+    if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
+        echo "Adding ~/.local/bin to your PATH..."
+        
+        # Detect shell and update appropriate config file
+        if [ -n "$ZSH_VERSION" ] || [ "$SHELL" = "/bin/zsh" ] || [ "$SHELL" = "/usr/bin/zsh" ]; then
+            # ZSH
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.zshrc"
+            echo "✅ Updated .zshrc! Please run 'source ~/.zshrc' to update your current session."
+        elif [ -n "$BASH_VERSION" ] || [ "$SHELL" = "/bin/bash" ] || [ "$SHELL" = "/usr/bin/bash" ]; then
+            # Bash
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
+            echo "✅ Updated .bashrc! Please run 'source ~/.bashrc' to update your current session."
+        else
+            # Generic approach
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.profile"
+            echo "✅ Updated .profile! Please log out and log back in for changes to take effect."
+        fi
+    fi
+    
+    echo "✅ Created HelloU command in ~/.local/bin!"
+    echo "You can now use 'HelloU add' instead of '~/Projects/face-recog/bin/face-unlock add'"
+fi
+
+# Remind user how to use the command
+echo ""
+echo "Usage examples:"
+echo "  HelloU add                 # Enroll your face"
+echo "  HelloU test                # Test face recognition"
+echo "  HelloU config --show       # Show current configuration"
+echo "  HelloU remove              # Remove your face data"
+echo ""

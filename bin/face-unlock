@@ -1,0 +1,357 @@
+#!/usr/bin/env python3
+"""
+Command-line interface for face-unlock.
+This module provides commands for managing the face unlock system.
+"""
+
+import os
+import sys
+import argparse
+import configparser
+import pwd
+import grp
+import getpass
+import logging
+import time
+
+# Add the parent directory to the path so we can import our modules
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from modules.paths import *
+try:
+    # Try to import the dlib-based module first (more reliable)
+    from modules.dlib_face_module import FaceUnlock
+except ImportError:
+    # Fall back to the face_recognition module if necessary
+    from modules.face_recognition_module import FaceUnlock
+
+def get_current_username():
+    """Get the current username."""
+    return getpass.getuser()
+
+def check_permissions():
+    """Check if the script is being run with appropriate permissions."""
+    user = get_current_username()
+    if user != "root" and not os.access(USERS_DIR, os.W_OK):
+        print("Warning: You may need to run this as root to access the camera or modify user data.")
+        return False
+    return True
+
+def add_user(args):
+    """Add a new user's face data."""
+    # If no username is provided, use the current user
+    username = args.username or get_current_username()
+    
+    # Check for sudo/root if adding another user
+    if username != get_current_username() and getpass.getuser() != "root":
+        print("Error: You must run this command with sudo to add another user.")
+        return False
+    
+    # Initialize face recognition
+    face_unlock = FaceUnlock()
+    
+    print(f"Adding face data for user: {username}")
+    print("Please position your face in front of the camera.")
+    print("Multiple samples will be taken to improve recognition accuracy.")
+    
+    # Add the user
+    result = face_unlock.add_user(username, num_samples=args.samples)
+    
+    if result:
+        print(f"Successfully added face data for {username}!")
+    else:
+        print("Failed to add user face data.")
+    
+    return result
+
+def test_user(args):
+    """Test face recognition for a user."""
+    # If no username is provided, use the current user
+    username = args.username or get_current_username()
+    
+    # Initialize face recognition
+    face_unlock = FaceUnlock()
+    
+    print(f"Testing face recognition for user: {username}")
+    print("Please position your face in front of the camera.")
+    
+    # Test authentication
+    result = face_unlock.authenticate_user(username, timeout=args.timeout)
+    
+    if result:
+        print("✓ Face recognition successful!")
+    else:
+        print("✗ Face recognition failed.")
+    
+    return result
+
+def remove_user(args):
+    """Remove a user's face data."""
+    # If no username is provided, use the current user
+    username = args.username or get_current_username()
+    
+    # Check for sudo/root if removing another user
+    if username != get_current_username() and getpass.getuser() != "root":
+        print("Error: You must run this command with sudo to remove another user.")
+        return False
+    
+    # Initialize face recognition
+    face_unlock = FaceUnlock()
+    
+    # Confirm before removing
+    if not args.force:
+        confirm = input(f"Are you sure you want to remove face data for {username}? (y/N): ")
+        if confirm.lower() != 'y':
+            print("Operation cancelled.")
+            return False
+    
+    # Remove the user
+    result = face_unlock.remove_user(username)
+    
+    if result:
+        print(f"Successfully removed face data for {username}.")
+    else:
+        print(f"No face data found for {username}.")
+    
+    return result
+
+def list_users(args):
+    """List users with registered face data."""
+    # Initialize face recognition
+    face_unlock = FaceUnlock()
+    
+    user_data_path = face_unlock.user_data_path
+    
+    if not os.path.exists(user_data_path):
+        print("No users registered for face authentication.")
+        return
+    
+    users = []
+    for filename in os.listdir(user_data_path):
+        if filename.endswith('.pkl'):
+            username = filename[:-4]  # Remove .pkl extension
+            users.append(username)
+    
+    if users:
+        print("Registered users:")
+        for username in sorted(users):
+            print(f" - {username}")
+    else:
+        print("No users registered for face authentication.")
+
+def configure(args):
+    """Configure the face unlock system."""
+    # Load the current configuration
+    config = configparser.ConfigParser()
+    config.read(CONFIG_FILE)
+    
+    if args.show:
+        # Display the current configuration
+        print("Current Configuration:")
+        for section in config.sections():
+            print(f"[{section}]")
+            for key, value in config.items(section):
+                print(f"{key} = {value}")
+            print()
+        return
+    
+    # Update camera device if specified
+    if args.camera:
+        if not config.has_section('camera'):
+            config.add_section('camera')
+        config.set('camera', 'device_path', args.camera)
+        print(f"Camera device updated to: {args.camera}")
+    
+    # Update recognition tolerance if specified
+    if args.tolerance is not None:
+        if not config.has_section('recognition'):
+            config.add_section('recognition')
+        config.set('recognition', 'tolerance', str(args.tolerance))
+        print(f"Recognition tolerance updated to: {args.tolerance}")
+    
+    # Update debug mode if specified
+    if args.debug is not None:
+        if not config.has_section('system'):
+            config.add_section('system')
+        config.set('system', 'debug', 'true' if args.debug else 'false')
+        print(f"Debug mode {'enabled' if args.debug else 'disabled'}")
+    
+    # Write the updated configuration to disk
+    os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
+    with open(CONFIG_FILE, 'w') as f:
+        config.write(f)
+    
+    print("Configuration updated successfully.")
+
+def setup_pam(args):
+    """Set up PAM integration."""
+    if getpass.getuser() != "root":
+        print("Error: You must run this command with sudo to configure PAM.")
+        return False
+    
+    # Path to the PAM module Python script
+    pam_module_path = PAM_MODULE
+    
+    # PAM configuration for various services
+    pam_configs = {
+        "sudo": "/etc/pam.d/sudo",
+        "login": "/etc/pam.d/login",
+        "gdm-password": "/etc/pam.d/gdm-password",
+        "polkit-1": "/etc/pam.d/polkit-1"
+    }
+    
+    # PAM configuration line to add
+    pam_line = f"auth        sufficient    pam_python.so {pam_module_path}"
+    
+    # Check if pam_python is installed
+    try:
+        # Try to import pam_python to check if it's available
+        import pam
+        print("PAM Python module is installed.")
+    except ImportError:
+        print("Error: The PAM Python module is not installed.")
+        print("Please install it with: sudo apt install libpam-python")
+        return False
+    
+    # Install the PAM configuration
+    for service, config_file in pam_configs.items():
+        if not args.services or service in args.services:
+            if os.path.exists(config_file):
+                # Check if our configuration is already in the file
+                with open(config_file, 'r') as f:
+                    content = f.read()
+                
+                if pam_module_path in content:
+                    print(f"PAM configuration for {service} is already installed.")
+                else:
+                    # Backup the original file
+                    os.system(f"cp {config_file} {config_file}.bak")
+                    
+                    # Add our configuration
+                    with open(config_file, 'r') as f:
+                        lines = f.readlines()
+                    
+                    # Find the position to insert our line (after the first auth line)
+                    insert_pos = 0
+                    for i, line in enumerate(lines):
+                        if line.strip().startswith('auth'):
+                            insert_pos = i + 1
+                            break
+                    
+                    lines.insert(insert_pos, pam_line + '\n')
+                    
+                    with open(config_file, 'w') as f:
+                        f.writelines(lines)
+                    
+                    print(f"PAM configuration for {service} installed successfully.")
+            else:
+                print(f"Warning: PAM configuration file for {service} not found.")
+    
+    print("PAM setup complete.")
+    print("Note: You may need to install additional packages:")
+    print("  sudo apt install libpam-python python3-pam")
+    
+    return True
+
+def run_service(args):
+    """Run as a background service for systemd."""
+    print("Starting face-unlock service...")
+    print("This service will monitor PAM events and provide face recognition.")
+    print("Press Ctrl+C to stop.")
+    
+    # Set up logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(LOG_FILE),
+            logging.StreamHandler()
+        ]
+    )
+    
+    logger = logging.getLogger("face_unlock_service")
+    
+    try:
+        # Initialize the face recognition system
+        try:
+            face_unlock = FaceUnlock()
+            logger.info("Face unlock service initialized")
+        except Exception as e:
+            logger.error(f"Failed to initialize face unlock: {e}")
+            return False
+        
+        # Service loop
+        logger.info("Service running. Waiting for PAM events...")
+        while True:
+            # The service doesn't need to do anything here
+            # PAM will call our module directly when needed
+            time.sleep(10)
+            
+    except KeyboardInterrupt:
+        logger.info("Service stopped by user.")
+    except Exception as e:
+        logger.error(f"Service error: {e}")
+        return False
+    
+    return True
+
+def main():
+    """Main entry point for the CLI."""
+    parser = argparse.ArgumentParser(description="Face Unlock - Face Recognition Authentication System")
+    subparsers = parser.add_subparsers(dest="command", help="Command to run")
+    
+    # Add user command
+    add_parser = subparsers.add_parser("add", help="Add a new user's face data")
+    add_parser.add_argument("--username", "-u", help="Username to add (defaults to current user)")
+    add_parser.add_argument("--samples", "-s", type=int, default=5, help="Number of face samples to collect")
+    add_parser.set_defaults(func=add_user)
+    
+    # Test command
+    test_parser = subparsers.add_parser("test", help="Test face recognition for a user")
+    test_parser.add_argument("--username", "-u", help="Username to test (defaults to current user)")
+    test_parser.add_argument("--timeout", "-t", type=int, default=5, help="Timeout in seconds")
+    test_parser.set_defaults(func=test_user)
+    
+    # Remove user command
+    remove_parser = subparsers.add_parser("remove", help="Remove a user's face data")
+    remove_parser.add_argument("--username", "-u", help="Username to remove (defaults to current user)")
+    remove_parser.add_argument("--force", "-f", action="store_true", help="Skip confirmation prompt")
+    remove_parser.set_defaults(func=remove_user)
+    
+    # List users command
+    list_parser = subparsers.add_parser("list", help="List users with registered face data")
+    list_parser.set_defaults(func=list_users)
+    
+    # Configure command
+    config_parser = subparsers.add_parser("config", help="Configure the face unlock system")
+    config_parser.add_argument("--camera", "-c", help="Camera device to use (e.g., /dev/video0)")
+    config_parser.add_argument("--tolerance", "-t", type=float, help="Recognition tolerance (lower is stricter)")
+    config_parser.add_argument("--debug", "-d", action="store_true", help="Enable debug mode")
+    config_parser.add_argument("--show", "-s", action="store_true", help="Show current configuration")
+    config_parser.set_defaults(func=configure)
+    
+    # Setup PAM integration
+    setup_parser = subparsers.add_parser("setup", help="Set up PAM integration")
+    setup_parser.add_argument("--services", "-s", nargs="+", choices=["sudo", "login", "gdm-password", "polkit-1"],
+                             help="PAM services to configure (defaults to all)")
+    setup_parser.set_defaults(func=setup_pam)
+    
+    # Service command (for systemd)
+    service_parser = subparsers.add_parser("service", help="Run as a background service (for systemd)")
+    service_parser.set_defaults(func=run_service)
+    
+    # Parse arguments
+    args = parser.parse_args()
+    
+    # Run the selected command
+    if hasattr(args, "func"):
+        # Check permissions for operations that may require sudo
+        if args.command in ["add", "remove", "config", "setup"]:
+            check_permissions()
+        
+        # Execute the command
+        args.func(args)
+    else:
+        parser.print_help()
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+# PAM integration setup script for face-unlock
+
+set -e
+
+# Colors for output
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
+# Function to print colored messages
+print_info() {
+    echo -e "${GREEN}[INFO]${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Check if running as root
+if [ "$EUID" -ne 0 ]; then
+    print_error "This script must be run as root (sudo)."
+    exit 1
+fi
+
+# Detect the current user (the one who invoked sudo)
+REAL_USER=${SUDO_USER:-$(whoami)}
+REAL_HOME=$(eval echo ~$REAL_USER)
+
+# Project path
+PROJECT_PATH="$REAL_HOME/Projects/face-recog"
+PAM_MODULE_PATH="$PROJECT_PATH/modules/pam_service.py"
+
+print_info "Setting up PAM integration for face-unlock..."
+
+# Check if the necessary packages are installed
+print_info "Checking required packages..."
+if ! dpkg -l | grep -q libpam-python; then
+    print_warning "libpam-python is not installed. Installing now..."
+    apt-get update
+    apt-get install -y libpam-python
+else
+    print_info "libpam-python is already installed."
+fi
+
+if ! python3 -c "import pamela" 2>/dev/null; then
+    print_warning "Python pamela module is not installed. Installing now..."
+    pip3 install pamela
+else
+    print_info "Python pamela module is already installed."
+fi
+
+# Function to set up PAM service
+setup_pam_service() {
+    local service=$1
+    local pam_file="/etc/pam.d/$service"
+    local pam_line="auth        sufficient    pam_python.so $PAM_MODULE_PATH"
+    
+    if [ -f "$pam_file" ]; then
+        # Check if configuration already exists
+        if grep -q "$PAM_MODULE_PATH" "$pam_file"; then
+            print_info "PAM configuration for $service already exists."
+        else
+            # Backup the original file
+            cp "$pam_file" "$pam_file.bak"
+            
+            # Add our configuration after the first auth line
+            awk -v line="$pam_line" '/^auth/ && !done {print $0; print line; done=1; next} {print}' "$pam_file.bak" > "$pam_file.new"
+            mv "$pam_file.new" "$pam_file"
+            
+            print_info "PAM configuration for $service installed successfully."
+        fi
+    else
+        print_warning "PAM configuration file for $service not found."
+    fi
+}
+
+# List of services to configure
+SERVICES="sudo login gdm-password polkit-1"
+
+# Ask user which services to configure
+echo
+echo "Which PAM services would you like to configure for face recognition?"
+echo "Available services: $SERVICES"
+echo
+echo "1) All services"
+echo "2) Only sudo"
+echo "3) Custom selection"
+echo
+read -p "Enter your choice (1-3): " choice
+
+case $choice in
+    1)
+        for service in $SERVICES; do
+            setup_pam_service "$service"
+        done
+        ;;
+    2)
+        setup_pam_service "sudo"
+        ;;
+    3)
+        echo "Enter services separated by space (e.g., 'sudo login'):"
+        read -p "> " custom_services
+        for service in $custom_services; do
+            setup_pam_service "$service"
+        done
+        ;;
+    *)
+        print_error "Invalid choice. Exiting."
+        exit 1
+        ;;
+esac
+
+# Create keyring integration script
+KEYRING_PAM_FILE="/etc/pam.d/gnome-keyring"
+if [ -f "$KEYRING_PAM_FILE" ]; then
+    print_info "Setting up keyring integration..."
+    if grep -q "$PAM_MODULE_PATH" "$KEYRING_PAM_FILE"; then
+        print_info "Keyring PAM configuration already exists."
+    else
+        # Backup the original file
+        cp "$KEYRING_PAM_FILE" "$KEYRING_PAM_FILE.bak"
+        
+        # Add our configuration
+        sed -i "1i auth        optional    pam_python.so $PAM_MODULE_PATH" "$KEYRING_PAM_FILE"
+        
+        print_info "Keyring PAM configuration installed successfully."
+    fi
+else
+    print_warning "Keyring PAM configuration file not found."
+fi
+
+print_info "PAM integration setup complete!"
+print_info "To test the configuration, you can run: sudo -k && sudo echo 'Face auth worked!'"
+print_info "If face recognition fails, you will be prompted for a password."

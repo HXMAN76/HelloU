@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""
+Script to demo face recognition by enrolling and then testing authentication.
+"""
+
+import os
+import sys
+import getpass
+from time import sleep
+
+# Add the parent directory to the path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from modules.dlib_face_module import FaceUnlock
+
+def main():
+    # Initialize face unlock
+    face_unlock = FaceUnlock()
+    
+    # Get current username
+    username = getpass.getuser()
+    
+    print(f"Face Unlock Demo for user: {username}")
+    print("="*50)
+    
+    # Check if user exists
+    user_file = os.path.join(face_unlock.user_data_path, f"{username}.pkl")
+    
+    if os.path.exists(user_file):
+        print(f"User {username} already has face data.")
+        choice = input("Do you want to re-enroll? (y/N): ")
+        if choice.lower() == 'y':
+            face_unlock.remove_user(username)
+            add_user = True
+        else:
+            add_user = False
+    else:
+        add_user = True
+    
+    # Add user if needed
+    if add_user:
+        print("\nLet's enroll your face.\nPlease position your face in front of the camera.")
+        print("Make sure your face is well lit and centered.")
+        print("Press Enter when you're ready...")
+        input()
+        
+        success = face_unlock.add_user(username, num_samples=5)
+        if not success:
+            print("Failed to enroll user. Exiting.")
+            return
+    
+    # Test authentication
+    print("\nNow let's test authentication.")
+    print("Please position your face in front of the camera again.")
+    print("Press Enter when you're ready...")
+    input()
+    
+    print("Authenticating...")
+    success = face_unlock.authenticate_user(username, timeout=10)
+    
+    if success:
+        print("\n✅ Authentication successful!")
+        print("Your face was recognized successfully.")
+    else:
+        print("\n❌ Authentication failed.")
+        print("Your face was not recognized or timed out.")
+    
+    print("\nDemo completed.")
+
+if __name__ == "__main__":
+    main()

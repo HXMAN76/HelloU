@@ -1,0 +1,83 @@
+#!/bin/bash
+# Script to set up shell aliases for face unlock system
+# This adds an alias to your shell configuration file
+
+set -e
+
+# Detect project location
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+FACE_UNLOCK_PATH="$PROJECT_DIR/bin/face-unlock"
+
+# Check if face-unlock exists
+if [ ! -f "$FACE_UNLOCK_PATH" ]; then
+    echo "❌ Error: face-unlock not found at $FACE_UNLOCK_PATH"
+    exit 1
+fi
+
+echo "Setting up HelloU shell alias for face unlock..."
+
+# Determine which shell configuration file to modify
+SHELL_TYPE=$(basename "$SHELL")
+SHELL_CONFIG=""
+
+case "$SHELL_TYPE" in
+    bash)
+        SHELL_CONFIG="$HOME/.bashrc"
+        ;;
+    zsh)
+        SHELL_CONFIG="$HOME/.zshrc"
+        ;;
+    *)
+        echo "Unsupported shell: $SHELL_TYPE. Using .profile instead."
+        SHELL_CONFIG="$HOME/.profile"
+        ;;
+esac
+
+# Add the alias to shell config if not already there
+if ! grep -q "alias HelloU=" "$SHELL_CONFIG"; then
+    echo "" >> "$SHELL_CONFIG"
+    echo "# Face unlock system alias" >> "$SHELL_CONFIG"
+    echo "alias HelloU='$FACE_UNLOCK_PATH'" >> "$SHELL_CONFIG"
+    echo "✅ Added HelloU alias to $SHELL_CONFIG"
+else
+    echo "✅ HelloU alias already exists in $SHELL_CONFIG"
+fi
+
+# Create wrapper function for setup
+if ! grep -q "function hello_setup()" "$SHELL_CONFIG"; then
+    echo "" >> "$SHELL_CONFIG"
+    echo "# Face unlock setup function" >> "$SHELL_CONFIG"
+    echo "function hello_setup() {" >> "$SHELL_CONFIG"
+    echo "    echo \"Setting up Face Unlock system...\"" >> "$SHELL_CONFIG"
+    echo "    cd $PROJECT_DIR" >> "$SHELL_CONFIG"
+    echo "    if [ ! -d \"env\" ]; then" >> "$SHELL_CONFIG"
+    echo "        echo \"Creating virtual environment...\"" >> "$SHELL_CONFIG"
+    echo "        python3 -m venv env" >> "$SHELL_CONFIG"
+    echo "        source env/bin/activate" >> "$SHELL_CONFIG"
+    echo "        pip install -r requirements.txt" >> "$SHELL_CONFIG"
+    echo "    else" >> "$SHELL_CONFIG"
+    echo "        source env/bin/activate" >> "$SHELL_CONFIG"
+    echo "    fi" >> "$SHELL_CONFIG"
+    echo "    echo \"✅ Face Unlock environment ready!\"" >> "$SHELL_CONFIG"
+    echo "    echo \"Run 'HelloU add' to enroll your face\"" >> "$SHELL_CONFIG"
+    echo "}" >> "$SHELL_CONFIG"
+    echo "✅ Added hello_setup function to $SHELL_CONFIG"
+else
+    echo "✅ hello_setup function already exists in $SHELL_CONFIG"
+fi
+
+echo ""
+echo "✨ Setup complete! ✨"
+echo ""
+echo "To use Face Unlock, you can now run:"
+echo "  HelloU add                 # Enroll your face"
+echo "  HelloU test                # Test face recognition"
+echo "  HelloU config --show       # Show current configuration"
+echo ""
+echo "For a complete setup with virtual environment activation, run:"
+echo "  hello_setup"
+echo ""
+echo "NOTE: You need to restart your terminal or run the following to apply changes:"
+echo "  source $SHELL_CONFIG"
+echo ""

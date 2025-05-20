@@ -1,0 +1,226 @@
+#!/bin/bash
+# Script to create Debian package for HelloU
+
+# Exit on error
+set -e
+
+# Set version and package name
+PKG_NAME="hellou"
+VERSION="1.0.0"
+ARCH="amd64"
+
+# Set directories
+PACKAGE_DIR="$PKG_NAME-$VERSION"
+DEBIAN_DIR="$PACKAGE_DIR/DEBIAN"
+# Use standard system paths
+INSTALL_DIR="$PACKAGE_DIR/usr"
+BIN_DIR="$INSTALL_DIR/bin"
+LIB_DIR="$INSTALL_DIR/lib/hellou"
+CONFIG_DIR="$PACKAGE_DIR/etc/hellou"
+DATA_DIR="$PACKAGE_DIR/var/lib/hellou"
+PAM_DIR="$PACKAGE_DIR/etc/pam.d"
+SYSTEMD_DIR="$PACKAGE_DIR/etc/systemd/system"
+DOC_DIR="$INSTALL_DIR/share/doc/hellou"
+MAN_DIR="$INSTALL_DIR/share/man/man1"
+
+# Create directory structure
+mkdir -p "$DEBIAN_DIR"
+mkdir -p "$BIN_DIR"
+mkdir -p "$LIB_DIR/modules"
+mkdir -p "$LIB_DIR/models"
+mkdir -p "$CONFIG_DIR"
+mkdir -p "$DATA_DIR/users"
+mkdir -p "$PAM_DIR"
+mkdir -p "$SYSTEMD_DIR"
+mkdir -p "$DOC_DIR"
+mkdir -p "$MAN_DIR"
+
+# Create control file
+cat > "$DEBIAN_DIR/control" << EOL
+Package: $PKG_NAME
+Version: $VERSION
+Section: admin
+Priority: optional
+Architecture: $ARCH
+Depends: python3 (>= 3.8), python3-pip, libpam-python, libpam-dev, cmake,
+ python3-opencv, python3-numpy, adduser
+Recommends: v4l-utils, python3-face-recognition
+Suggests: ir-camera-utils
+Maintainer: Hari Heman <hariheman76@gmail.com>
+Homepage: https://github.com/yourusername/hellou
+Description: Face recognition authentication system for Linux
+ HelloU is a modern face unlock system for Linux that enables face-based
+ authentication for sudo, login, screen unlock, and other PAM-secured
+ operations. It features:
+  * Fast face detection and recognition using dlib
+  * Support for IR cameras for enhanced security
+  * Integration with PAM for system-wide authentication
+  * Simple command-line interface
+  * Privacy-focused design keeping all data local
+  * Configurable security settings
+ .
+ This package provides the HelloU command and PAM module.
+EOL
+
+# Create postinst script
+cat > "$DEBIAN_DIR/postinst" << 'EOL'
+#!/bin/bash
+set -e
+
+# Install Python dependencies system-wide
+pip3 install --system --target=/usr/lib/hellou/python \
+    dlib==19.24.9 \
+    numpy==2.2.6 \
+    opencv-python==4.11.0.86 \
+    face-recognition==1.3.0 \
+    face-recognition-models==0.3.0
+
+# Set up PAM configuration
+for service in sudo login gdm-password polkit-1; do
+    if [ -f "/etc/pam.d/$service" ]; then
+        line="auth        sufficient    pam_python.so /usr/local/lib/hellou/modules/pam_service.py"
+        if ! grep -q "pam_python.so.*hellou" "/etc/pam.d/$service"; then
+            sed -i "1a$line" "/etc/pam.d/$service"
+        fi
+    fi
+done
+
+# Start and enable systemd service
+systemctl daemon-reload
+systemctl enable hellou.service
+systemctl start hellou.service
+
+# Create groups and permissions
+groupadd -f hellou
+chown -R root:hellou /var/lib/hellou
+chmod 770 /var/lib/hellou
+chmod 770 /var/lib/hellou/users
+
+# Add current sudo users to hellou group
+for user in $(getent group sudo | cut -d: -f4 | tr ',' '\n'); do
+    usermod -a -G hellou "$user"
+done
+
+# Install shell completion
+mkdir -p /usr/share/bash-completion/completions
+cp /usr/lib/hellou/hellou-completion.bash /usr/share/bash-completion/completions/HelloU
+
+# Create log file
+touch /var/log/hellou.log
+chown root:hellou /var/log/hellou.log
+chmod 660 /var/log/hellou.log
+
+echo "HelloU face unlock system has been installed successfully!"
+echo "Run 'HelloU add' to enroll your face."
+EOL
+
+# Create prerm script
+cat > "$DEBIAN_DIR/prerm" << 'EOL'
+#!/bin/bash
+set -e
+
+# Stop and disable systemd service
+if systemctl is-active --quiet hellou.service; then
+    systemctl stop hellou.service
+fi
+if systemctl is-enabled --quiet hellou.service; then
+    systemctl disable hellou.service
+fi
+
+# Remove PAM configuration
+for service in sudo login gdm-password polkit-1; do
+    if [ -f "/etc/pam.d/$service" ]; then
+        sed -i '/pam_python.so.*hellou/d' "/etc/pam.d/$service"
+    fi
+done
+
+# Remove shell completion
+rm -f /usr/share/bash-completion/completions/HelloU
+
+# Backup user data if exists
+if [ -d /var/lib/hellou/users ] && [ ! -d /var/backups/hellou ]; then
+    mkdir -p /var/backups/hellou
+    cp -r /var/lib/hellou/users /var/backups/hellou/
+    echo "User face data backed up to /var/backups/hellou"
+fi
+EOL
+
+# Make scripts executable
+chmod 755 "$DEBIAN_DIR/postinst"
+chmod 755 "$DEBIAN_DIR/prerm"
+
+# Copy files
+cp bin/face-unlock "$BIN_DIR/HelloU"
+cp -r modules/* "$LIB_DIR/modules/"
+cp config/config.ini "$CONFIG_DIR/hellou.conf"
+cp config/face-unlock.service "$SYSTEMD_DIR/hellou.service"
+
+# Copy documentation
+cp README.md "$DOC_DIR/README.md"
+cp LICENSE "$DOC_DIR/copyright"
+
+# Create man page
+cat > "$MAN_DIR/HelloU.1" << 'MANPAGE'
+.TH HELLOU 1 "May 2025" "HelloU 1.0.0" "User Commands"
+.SH NAME
+HelloU \- Face recognition authentication system for Linux
+.SH SYNOPSIS
+.B HelloU
+[\fICOMMAND\fR] [\fIOPTIONS\fR]
+.SH DESCRIPTION
+HelloU provides face-based authentication for Linux systems, allowing face unlock
+for sudo, login, and other PAM-authenticated actions.
+.SH COMMANDS
+.TP
+.B add
+Enroll your face for recognition
+.TP
+.B test
+Test face recognition
+.TP
+.B remove
+Remove your face data
+.TP
+.B config
+Configure HelloU settings
+.SH EXAMPLES
+.TP
+HelloU add
+Enroll your face
+.TP
+HelloU test
+Test face recognition
+.TP
+HelloU config --camera /dev/video0
+Set camera device
+.SH FILES
+.TP
+.I /etc/hellou/hellou.conf
+System configuration file
+.TP
+.I /var/lib/hellou/users/
+User face data directory
+.SH AUTHOR
+Written by Hari Heman <hariheman76@gmail.com>
+.SH BUGS
+Report bugs at: https://github.com/yourusername/hellou/issues
+MANPAGE
+
+# Compress man page
+gzip -9 "$MAN_DIR/HelloU.1"
+
+# Update config.ini with system paths
+sed -i 's|~/Projects/face-recog/data/models|/var/lib/hellou/models|g' "$CONFIG_DIR/config.ini"
+sed -i 's|~/Projects/face-recog/data/users|/var/lib/hellou/users|g' "$CONFIG_DIR/config.ini"
+sed -i 's|~/Projects/face-recog/face_unlock.log|/var/log/hellou.log|g' "$CONFIG_DIR/config.ini"
+
+# Set permissions
+find "$PACKAGE_DIR" -type d -exec chmod 755 {} \;
+find "$PACKAGE_DIR" -type f -exec chmod 644 {} \;
+chmod 755 "$INSTALL_DIR/bin/HelloU"
+chmod 755 "$DEBIAN_DIR"/*
+
+# Build package
+dpkg-deb --build "$PACKAGE_DIR"
+
+echo "Package created: $PACKAGE_DIR.deb"
