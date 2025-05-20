@@ -40,10 +40,12 @@ Choose the installation method that best suits your needs:
 ```bash
 # Download latest release from GitHub
 ver=$(curl -s https://api.github.com/repos/HXMAN76/HelloU/releases/latest | grep -oP '"tag_name": "\K(.*)(?=")')
-wget "https://github.com/HXMAN76/HelloU/releases/download/${ver}/hellou_${ver}_amd64.deb"
+# Remove the 'v' prefix for package name
+pkgver=${ver#v}
+wget "https://github.com/HXMAN76/HelloU/releases/download/${ver}/hellou_${pkgver}_amd64.deb"
 
 # Install HelloU
-sudo apt install ./"hellou_${ver}_amd64.deb"
+sudo apt install ./"hellou_${pkgver}_amd64.deb"
 ```
 
 ### Option 2: Manual Installation
