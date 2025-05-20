@@ -31,7 +31,9 @@ HelloU is a modern facial recognition system for Linux authentication. It enable
   <img src="https://placehold.co/800x400/darkblue/white?text=Face+Recognition+Demo&font=montserrat" alt="Demo Image" width="600">
 </p>
 
-## Quick Installation
+## Installation
+
+Choose the installation method that best suits your needs:
 
 ### Option 1: APT Package (Recommended)
 
@@ -44,65 +46,7 @@ wget "https://github.com/HXMAN76/HelloU/releases/download/${ver}/hellou_${ver}_a
 sudo apt install ./"hellou_${ver}_amd64.deb"
 ```
 
-### Option 2: Quick Install Script
-
-Our automated installation script handles everything for you:
-
-```bash
-curl -fsSL https://install.hellou.dev | sudo bash
-```
-
-### Add Your Face
-
-```bash
-HelloU add
-```
-
-### Test Recognition
-
-```bash
-HelloU test
-```
-
-## Installation Methods
-
-### 1. APT Repository (Recommended)
-
-The easiest way to install HelloU:
-
-```bash
-# Add HelloU repository and signing key
-curl -fsSL https://apt.hellou.dev/gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/hellou-archive-keyring.gpg
-echo "deb [signed-by=/usr/share/keyrings/hellou-archive-keyring.gpg] https://apt.hellou.dev/ stable main" | \
-  sudo tee /etc/apt/sources.list.d/hellou.list > /dev/null
-
-# Install HelloU
-sudo apt update
-sudo apt install hellou
-```
-
-### 2. Direct Package Installation
-
-Install the latest release package:
-
-```bash
-# Download latest release
-ver=$(curl -s https://api.github.com/repos/hellou-dev/HelloU/releases/latest | grep -oP '"tag_name": "\K(.*)(?=")')
-wget "https://github.com/hellou-dev/HelloU/releases/download/${ver}/hellou_${ver}_amd64.deb"
-
-# Install the package
-sudo apt install ./"hellou_${ver}_amd64.deb"
-```
-
-### 3. Quick Install Script
-
-Our automated installation script handles everything:
-
-```bash
-curl -fsSL https://install.hellou.dev | sudo bash
-```
-
-### 4. Manual Installation
+### Option 2: Manual Installation
 
 For advanced users who want full control:
 
@@ -125,15 +69,16 @@ sudo ./install.sh
 sudo HelloU setup
 ```
 
-## Easy Installation (Ubuntu/Debian)
+### Initial Setup
 
-For Ubuntu/Debian users, installation is straightforward:
+After installation, set up face recognition:
 
 ```bash
-# Download and install from GitHub releases
-ver=$(curl -s https://api.github.com/repos/HXMAN76/HelloU/releases/latest | grep -oP '"tag_name": "\K(.*)(?=")')
-wget "https://github.com/HXMAN76/HelloU/releases/download/${ver}/hellou_${ver}_amd64.deb"
-sudo apt install ./"hellou_${ver}_amd64.deb"
+# Add your face to the system
+HelloU add
+
+# Test the recognition
+HelloU test
 ```
 
 ## Usage Guide
@@ -255,79 +200,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
   </p>
 </div>
 
-## Installation
 
-### Automatic Installation (Recommended)
-
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/yourusername/face-unlock.git
-   cd face-unlock
-   ```
-
-2. Run the installation script:
-   ```bash
-   sudo ./install.sh
-   ```
-
-3. After installation, you can use the convenient `HelloU` command:
-   ```bash
-   HelloU add    # Enroll your face
-   HelloU test   # Test face recognition
-   ```
-
-### User Installation (No Root Required)
-
-For single-user installation without system-wide integration:
-
-1. Install HelloU in your home directory:
-   ```bash
-   # Clone the repository
-   git clone https://github.com/yourusername/HelloU.git ~/.local/share/HelloU
-   cd ~/.local/share/HelloU
-   
-   # Install dependencies in user space
-   python3 -m pip install --user -r requirements.txt
-   
-   # Add HelloU to your PATH
-   echo 'export PATH="$HOME/.local/share/HelloU/bin:$PATH"' >> ~/.zshrc
-   ```
-
-2. Reload your shell configuration:
-   ```bash
-   source ~/.zshrc
-   ```
-
-3. Start using HelloU:
-   ```bash
-   HelloU add    # Enroll your face
-   ```
-
-### Manual Installation
-
-1. Install system dependencies:
-   ```bash
-   sudo apt update
-   sudo apt install -y python3 python3-pip python3-dev libpam-python libpam-dev cmake
-   ```
-
-2. Install HelloU:
-   ```bash
-   # Clone the repository
-   git clone https://github.com/yourusername/HelloU.git
-   cd HelloU
-   
-   # Install Python dependencies
-   python3 -m pip install --user -r requirements.txt
-   
-   # Install HelloU system-wide
-   sudo ./install.sh
-   ```
-
-3. Set up PAM integration:
-   ```bash
-   sudo HelloU setup
-   ```
 
 ## Development Setup
 
