@@ -210,9 +210,11 @@ MANPAGE
 gzip -9 "$MAN_DIR/HelloU.1"
 
 # Update config.ini with system paths
-sed -i 's|~/Projects/face-recog/data/models|/var/lib/hellou/models|g' "$CONFIG_DIR/config.ini"
-sed -i 's|~/Projects/face-recog/data/users|/var/lib/hellou/users|g' "$CONFIG_DIR/config.ini"
-sed -i 's|~/Projects/face-recog/face_unlock.log|/var/log/hellou.log|g' "$CONFIG_DIR/config.ini"
+# Copy and update config file
+cp config/config.ini "$CONFIG_DIR/hellou.conf"
+sed -i 's|~/Projects/face-recog/data/models|/var/lib/hellou/models|g' "$CONFIG_DIR/hellou.conf"
+sed -i 's|~/Projects/face-recog/data/users|/var/lib/hellou/users|g' "$CONFIG_DIR/hellou.conf"
+sed -i 's|~/Projects/face-recog/face_unlock.log|/var/log/hellou.log|g' "$CONFIG_DIR/hellou.conf"
 
 # Set permissions
 find "$PACKAGE_DIR" -type d -exec chmod 755 {} \;

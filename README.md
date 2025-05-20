@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![HelloU Logo](https://placehold.co/600x150/orange/white?text=HelloU+Face+Unlock&font=montserrat)
+![HelloU Logo](https://placehold.co/600x150/orange/white?text=HelloU&font=montserrat)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Platform](https://img.shields.io/badge/platform-Linux-blue.svg)](https://www.linux.org/)
