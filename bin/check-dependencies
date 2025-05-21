@@ -1,0 +1,215 @@
+#!/bin/bash
+# check-dependencies.sh - Checks for required dependencies for HelloU
+#
+# This script verifies that all required dependencies for the HelloU
+# face recognition system are installed on the system.
+
+set -e
+
+# Print colorized output
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+echo -e "${BLUE}============================${NC}"
+echo -e "${BLUE}= HelloU Dependency Check  =${NC}"
+echo -e "${BLUE}============================${NC}"
+echo
+
+# Required apt packages
+APT_PACKAGES=(
+  "python3"
+  "python3-pip"
+  "python3-dev"
+  "libpam-python"
+  "libpam-dev"
+  "cmake"
+  "build-essential"
+  "libsm6"
+  "libxext6"
+  "libxrender-dev"
+  "libgl1-mesa-glx"
+)
+
+# Required Python packages
+PYTHON_PACKAGES=(
+  "numpy"
+  "dlib"
+  "face_recognition"
+  "face_recognition_models"
+  "opencv-python"
+  "pillow"
+)
+
+# Function to check if a command exists
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+# Check for apt packages
+check_apt_packages() {
+  local missing_packages=()
+  
+  echo -e "${BLUE}Checking system packages...${NC}"
+  
+  for pkg in "${APT_PACKAGES[@]}"; do
+    echo -n "Checking for $pkg... "
+    if dpkg -s "$pkg" >/dev/null 2>&1; then
+      echo -e "${GREEN}Installed${NC}"
+    else
+      echo -e "${RED}Missing${NC}"
+      missing_packages+=("$pkg")
+    fi
+  done
+  
+  if [ ${#missing_packages[@]} -eq 0 ]; then
+    echo -e "${GREEN}All required system packages are installed.${NC}"
+    return 0
+  else
+    echo -e "${RED}Missing system packages: ${missing_packages[*]}${NC}"
+    echo -e "${YELLOW}You can install them with:${NC}"
+    echo -e "sudo apt install ${missing_packages[*]}"
+    return 1
+  fi
+}
+
+# Check for Python packages
+check_python_packages() {
+  local missing_packages=()
+  
+  echo -e "${BLUE}Checking Python packages...${NC}"
+  
+  # Ensure pip is available
+  if ! command_exists pip3; then
+    echo -e "${RED}pip3 is not installed. Cannot check Python packages.${NC}"
+    return 1
+  fi
+  
+  for pkg in "${PYTHON_PACKAGES[@]}"; do
+    echo -n "Checking for $pkg... "
+    if python3 -c "import importlib.util; print(importlib.util.find_spec('${pkg//-/_}') is not None)" | grep -q "True"; then
+      echo -e "${GREEN}Installed${NC}"
+    else
+      echo -e "${RED}Missing${NC}"
+      missing_packages+=("$pkg")
+    fi
+  done
+  
+  if [ ${#missing_packages[@]} -eq 0 ]; then
+    echo -e "${GREEN}All required Python packages are installed.${NC}"
+    return 0
+  else
+    echo -e "${RED}Missing Python packages: ${missing_packages[*]}${NC}"
+    echo -e "${YELLOW}You can install them with:${NC}"
+    echo -e "pip3 install ${missing_packages[*]}"
+    return 1
+  fi
+}
+
+# Check for camera access
+check_camera_access() {
+  echo -e "${BLUE}Checking camera access...${NC}"
+  
+  if [ -e /dev/video0 ]; then
+    echo -e "${GREEN}Camera device found at /dev/video0${NC}"
+    
+    # Check if the current user has access to the video group
+    if groups | grep -q '\bvideo\b'; then
+      echo -e "${GREEN}User has camera access (member of video group)${NC}"
+      return 0
+    else
+      echo -e "${YELLOW}Warning: User is not a member of the video group${NC}"
+      echo -e "${YELLOW}You may need to add yourself to the video group:${NC}"
+      echo -e "sudo usermod -a -G video $USER"
+      echo -e "${YELLOW}(Requires logout and login to take effect)${NC}"
+      return 1
+    fi
+  else
+    echo -e "${RED}No camera device found at /dev/video0${NC}"
+    echo -e "${YELLOW}Please check if your camera is connected and drivers are installed${NC}"
+    return 1
+  fi
+}
+
+# Check for PAM configuration capability
+check_pam_capability() {
+  echo -e "${BLUE}Checking PAM configuration capability...${NC}"
+  
+  # Check if we have access to PAM directory
+  if [ -d "/etc/pam.d" ] && [ -w "/etc/pam.d" ]; then
+    echo -e "${GREEN}PAM configuration directory is accessible and writable${NC}"
+    return 0
+  else
+    echo -e "${RED}PAM configuration directory is not accessible or writable${NC}"
+    echo -e "${YELLOW}Make sure you run the installer with sudo${NC}"
+    return 1
+  fi
+}
+
+# Main function
+main() {
+  # Check if help was requested
+  if [ "$1" == "--help" ] || [ "$1" == "-h" ]; then
+    echo "Usage: hellou-check-dependencies [OPTION]"
+    echo ""
+    echo "Check system dependencies for the HelloU face recognition system."
+    echo ""
+    echo "Options:"
+    echo "  -h, --help     Display this help message"
+    echo "  --verbose      Show more detailed output"
+    echo ""
+    echo "Exit status:"
+    echo "  0  if all checks passed"
+    echo "  1  if any check failed"
+    echo ""
+    echo "Report bugs to: https://github.com/HXMAN76/hellou/issues"
+    exit 0
+  fi
+  
+  local status=0
+  local error_count=0
+  
+  # Run all checks
+  echo -e "${BLUE}Running dependency checks...${NC}"
+  echo
+  
+  check_apt_packages
+  status=$?
+  [ $status -ne 0 ] && ((error_count++))
+  echo
+  
+  check_python_packages
+  status=$?
+  [ $status -ne 0 ] && ((error_count++))
+  echo
+  
+  check_camera_access
+  status=$?
+  [ $status -ne 0 ] && ((error_count++))
+  echo
+  
+  check_pam_capability
+  status=$?
+  [ $status -ne 0 ] && ((error_count++))
+  echo
+  
+  # Print summary
+  echo -e "${BLUE}============================${NC}"
+  echo -e "${BLUE}= Dependency Check Summary =${NC}"
+  echo -e "${BLUE}============================${NC}"
+  
+  if [ $error_count -eq 0 ]; then
+    echo -e "${GREEN}All checks passed!${NC}"
+    echo -e "${GREEN}Your system meets all requirements for HelloU.${NC}"
+    exit 0
+  else
+    echo -e "${RED}$error_count check(s) failed.${NC}"
+    echo -e "${YELLOW}Please address the issues above before installing HelloU.${NC}"
+    exit 1
+  fi
+}
+
+# Run the main function
+main "$@"

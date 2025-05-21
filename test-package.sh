@@ -81,8 +81,11 @@ run_test "Executable" "which hellou && hellou --help"
 # Test 6: Check uninstall executable
 run_test "Uninstall Script" "which uninstall-hellou && uninstall-hellou --help"
 
-# Test 7: Check man pages
-run_test "Man Pages" "man -w hellou && man -w uninstall-hellou"
+# Test 7: Check dependency check script
+run_test "Dependency Check Script" "which hellou-check-dependencies && hellou-check-dependencies --help"
+
+# Test 8: Check man pages
+run_test "Man Pages" "man -w hellou && man -w uninstall-hellou && man -w hellou-check-dependencies"
 
 # Test 8: Check PAM configuration
 run_test "PAM Configuration" "grep -r hellou /etc/pam.d/"

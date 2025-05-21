@@ -51,6 +51,47 @@ cat << EOF > "$BUILD_DIR/DEBIAN/conffiles"
 /etc/hellou/hellou-completion.bash
 EOF
 
+# Create preinst script to check dependencies
+cat << EOF > "$BUILD_DIR/DEBIAN/preinst"
+#!/bin/bash
+set -e
+
+echo "Checking system dependencies for HelloU..."
+
+# Check for required packages
+MISSING_PKGS=""
+for pkg in python3 python3-pip python3-dev libpam-python libpam-dev python3-opencv python3-numpy; do
+  if ! dpkg -s \$pkg >/dev/null 2>&1; then
+    MISSING_PKGS="\$MISSING_PKGS \$pkg"
+  fi
+done
+
+if [ -n "\$MISSING_PKGS" ]; then
+  echo "The following required packages are missing:\$MISSING_PKGS"
+  echo "Please install them with: sudo apt install\$MISSING_PKGS"
+  exit 1
+fi
+
+# Check for Python modules
+for module in numpy face_recognition cv2 PIL; do
+  if ! python3 -c "import \$module" >/dev/null 2>&1; then
+    echo "Required Python module '\$module' is not installed."
+    echo "Please install missing Python dependencies with: sudo pip3 install -r /usr/share/doc/hellou-fixed/requirements.txt"
+    exit 1
+  fi
+done
+
+# Check camera access
+if [ ! -e /dev/video0 ]; then
+  echo "Warning: No camera device found at /dev/video0"
+  echo "HelloU requires a camera to function properly."
+  echo "Installation will continue, but you should make sure a camera is connected."
+fi
+
+echo "Dependency check passed. Continuing with installation..."
+EOF
+chmod 755 "$BUILD_DIR/DEBIAN/preinst"
+
 # Copy configuration files
 cp "$SOURCE_PKG/etc/hellou/hellou.conf" "$BUILD_DIR/etc/hellou/"
 cp "$SOURCE_PKG/etc/hellou/hellou-completion.bash" "$BUILD_DIR/etc/hellou/"
@@ -61,6 +102,10 @@ cp "$SOURCE_PKG/etc/systemd/system/hellou.service" "$BUILD_DIR/lib/systemd/syste
 # Copy executables
 cp "$SOURCE_PKG/usr/bin/HelloU" "$BUILD_DIR/usr/bin/"
 chmod 755 "$BUILD_DIR/usr/bin/HelloU"
+
+# Add dependency check script
+cp "$OUTPUT_DIR/bin/check-dependencies" "$BUILD_DIR/usr/bin/hellou-check-dependencies"
+chmod 755 "$BUILD_DIR/usr/bin/hellou-check-dependencies"
 
 # Rename uninstall script (removing .sh extension)
 cp "$SOURCE_PKG/usr/bin/uninstall-hellou.sh" "$BUILD_DIR/usr/bin/uninstall-hellou"
@@ -168,11 +213,37 @@ Written by Hari Heman <hariheman76@gmail.com>
 Report bugs to: https://github.com/HXMAN76/hellou/issues
 EOF
 
+# Create man page for hellou-check-dependencies command
+cat << EOF > "$BUILD_DIR/usr/share/man/man1/hellou-check-dependencies.1"
+.TH HELLOU-CHECK-DEPENDENCIES 1 "May 2025" "hellou-fixed 1.0.0" "User Commands"
+.SH NAME
+hellou-check-dependencies \- Check system dependencies for the HelloU face recognition system
+.SH SYNOPSIS
+.B hellou-check-dependencies
+.SH DESCRIPTION
+This command checks if all required system dependencies for the HelloU face recognition system
+are installed and properly configured. It verifies the presence of required packages,
+Python modules, camera accessibility, and PAM configuration capability.
+.SH EXIT STATUS
+.TP
+.B 0
+All checks passed successfully
+.TP
+.B 1
+One or more checks failed
+.SH AUTHOR
+Written by Hari Heman <hariheman76@gmail.com>
+.SH REPORTING BUGS
+Report bugs to: https://github.com/HXMAN76/hellou/issues
+EOF
+
 # Compress man pages
 gzip -9 "$BUILD_DIR/usr/share/man/man1/HelloU.1"
 gzip -9 "$BUILD_DIR/usr/share/man/man1/uninstall-hellou.1"
+gzip -9 "$BUILD_DIR/usr/share/man/man1/hellou-check-dependencies.1"
 chmod 644 "$BUILD_DIR/usr/share/man/man1/HelloU.1.gz"
 chmod 644 "$BUILD_DIR/usr/share/man/man1/uninstall-hellou.1.gz"
+chmod 644 "$BUILD_DIR/usr/share/man/man1/hellou-check-dependencies.1.gz"
 
 # Create copyright file
 cat << EOF > "$BUILD_DIR/usr/share/doc/$PACKAGE_NAME/copyright"
@@ -220,10 +291,14 @@ gzip -9 "$BUILD_DIR/usr/share/doc/$PACKAGE_NAME/changelog"
 # Copy README
 cp "$OUTPUT_DIR/README.md" "$BUILD_DIR/usr/share/doc/$PACKAGE_NAME/"
 
+# Copy requirements.txt
+cp "$OUTPUT_DIR/requirements.txt" "$BUILD_DIR/usr/share/doc/$PACKAGE_NAME/"
+
 # Set correct permissions for documentation
 chmod 644 "$BUILD_DIR/usr/share/doc/$PACKAGE_NAME/copyright"
 chmod 644 "$BUILD_DIR/usr/share/doc/$PACKAGE_NAME/changelog.gz"
 chmod 644 "$BUILD_DIR/usr/share/doc/$PACKAGE_NAME/README.md"
+chmod 644 "$BUILD_DIR/usr/share/doc/$PACKAGE_NAME/requirements.txt"
 
 # Create postinst script
 cat << 'EOF' > "$BUILD_DIR/DEBIAN/postinst"
