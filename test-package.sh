@@ -24,7 +24,7 @@ fi
 
 # Create a temporary directory for testing
 TEST_DIR=$(mktemp -d)
-PACKAGE_PATH="/home/hxman/Projects/face-recog/hellou-fixed-1.0.0-final.deb"
+PACKAGE_PATH="/home/hxman/Projects/face-recog/hellou-fixed-1.0.0-final-with-deps.deb"
 
 echo -e "${YELLOW}Testing package: ${PACKAGE_PATH}${NC}"
 echo -e "${YELLOW}Using temporary directory: ${TEST_DIR}${NC}"
