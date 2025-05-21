@@ -196,9 +196,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Package Maintenance
 
-### Debian Package Structure
-
-The HelloU Debian package follows standard Debian packaging guidelines:
+The HelloU package has been restructured to follow standard Debian packaging guidelines:
 
 - Python modules in `/usr/lib/python3/dist-packages/hellou/`
 - Configuration files in `/etc/hellou/`
@@ -207,18 +205,12 @@ The HelloU Debian package follows standard Debian packaging guidelines:
 - Documentation in `/usr/share/doc/hellou/`
 - Man pages in `/usr/share/man/`
 
-### Building a New Package
-
-To build a new package:
+For detailed information on package maintenance, building, and testing, see the [Package Maintenance Guide](PACKAGE_MAINTENANCE.md).
 
 ```bash
-# Run the package build script
+# Quick package build command
 sudo ./fix-package-ultimate.sh
 ```
-
-This script creates a standards-compliant Debian package and outputs the file `hellou-fixed-1.0.0-final.deb`.
-
-### Cleanup
 
 After successful package building, you can clean up temporary build files:
 
