@@ -271,6 +271,18 @@ class FaceUnlock:
         else:
             self.logger.error(f"No face data found for user: {username}")
             return False
+    
+    def run_service(self):
+        """Run as a background service for PAM authentication."""
+        self.logger.info("Starting HelloU face recognition service")
+        
+        while True:
+            # Sleep to prevent high CPU usage
+            time.sleep(1)
+            
+            # Service just needs to stay alive for PAM module to work
+            # The actual authentication is handled by authenticate_user() when called by PAM
+            pass
 
 # If run directly, test the module
 if __name__ == "__main__":

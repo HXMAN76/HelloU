@@ -1,8 +1,30 @@
 #!/bin/bash
 # Script to create Debian package for HelloU
 
-# Exit on error
+# Exit on error, enable error tracing
 set -e
+set -E
+
+# Error handler
+error_handler() {
+    local line_no=$1
+    local error_code=$2
+    echo "Error on line $line_no (error code: $error_code)"
+    cleanup_on_error
+}
+
+trap 'error_handler ${LINENO} $?' ERR
+
+cleanup_on_error() {
+    echo "Cleaning up after error..."
+    if [ -d "$PACKAGE_DIR" ]; then
+        rm -rf "$PACKAGE_DIR"
+    fi
+    if [ -d "vendor" ]; then
+        rm -rf vendor
+    fi
+    exit 1
+}
 
 # Set version and package name
 PKG_NAME="hellou"
@@ -15,7 +37,7 @@ DEBIAN_DIR="$PACKAGE_DIR/DEBIAN"
 # Use standard system paths
 INSTALL_DIR="$PACKAGE_DIR/usr"
 BIN_DIR="$INSTALL_DIR/bin"
-LIB_DIR="$INSTALL_DIR/lib/hellou"
+OPT_DIR="$PACKAGE_DIR/opt/hellou"
 CONFIG_DIR="$PACKAGE_DIR/etc/hellou"
 DATA_DIR="$PACKAGE_DIR/var/lib/hellou"
 PAM_DIR="$PACKAGE_DIR/etc/pam.d"
@@ -23,17 +45,96 @@ SYSTEMD_DIR="$PACKAGE_DIR/etc/systemd/system"
 DOC_DIR="$INSTALL_DIR/share/doc/hellou"
 MAN_DIR="$INSTALL_DIR/share/man/man1"
 
+# Function to safely create directories
+create_dir() {
+    local dir=$1
+    if [ ! -d "$dir" ]; then
+        echo "Creating directory: $dir"
+        mkdir -p "$dir"
+    else
+        echo "Directory already exists, cleaning: $dir"
+        rm -rf "${dir:?}"/*
+    fi
+}
+
+# Function to safely copy files
+copy_file() {
+    local src=$1
+    local dest=$2
+    local desc=$3
+    
+    if [ ! -f "$src" ]; then
+        echo "Warning: Source file not found: $src"
+        return 1
+    fi
+    
+    echo "Copying $desc: $src -> $dest"
+    cp -f "$src" "$dest"
+    return 0
+}
+
+# Clean up any existing package directory
+if [ -d "$PACKAGE_DIR" ]; then
+    echo "Cleaning existing package directory..."
+    rm -rf "$PACKAGE_DIR"
+fi
+
 # Create directory structure
-mkdir -p "$DEBIAN_DIR"
-mkdir -p "$BIN_DIR"
-mkdir -p "$LIB_DIR/modules"
-mkdir -p "$LIB_DIR/models"
-mkdir -p "$CONFIG_DIR"
-mkdir -p "$DATA_DIR/users"
-mkdir -p "$PAM_DIR"
-mkdir -p "$SYSTEMD_DIR"
-mkdir -p "$DOC_DIR"
-mkdir -p "$MAN_DIR"
+echo "Creating package directory structure..."
+create_dir "$DEBIAN_DIR"
+create_dir "$BIN_DIR"
+create_dir "$OPT_DIR/python"
+create_dir "$OPT_DIR/modules"
+create_dir "$OPT_DIR/models"
+create_dir "$OPT_DIR/config"
+create_dir "$CONFIG_DIR"
+create_dir "$DATA_DIR/users"
+create_dir "$PAM_DIR"
+create_dir "$SYSTEMD_DIR"
+create_dir "$DOC_DIR"
+create_dir "$MAN_DIR"
+create_dir "$INSTALL_DIR/share/bash-completion/completions"
+
+# Set up vendor directory for Python dependencies
+if [ -d "vendor" ]; then
+    echo "Cleaning existing vendor directory..."
+    rm -rf vendor/*
+else
+    echo "Creating vendor directory..."
+    mkdir -p vendor
+fi
+
+# Download Python dependencies
+echo "Downloading Python dependencies..."
+python3 -m pip download \
+    dlib==19.24.9 \
+    numpy==2.2.6 \
+    opencv-python==4.11.0.86 \
+    face-recognition==1.3.0 \
+    face-recognition-models==0.3.0 \
+    pillow==11.2.1 \
+    click==8.2.0 \
+    -d vendor/ || { echo "Failed to download Python dependencies"; exit 1; }
+
+# Clean and install packages to the package's opt directory
+rm -rf "$OPT_DIR/python"/*
+python3 -m pip install --no-index --find-links=vendor/ \
+    --no-warn-script-location \
+    dlib==19.24.9 \
+    numpy==2.2.6 \
+    opencv-python==4.11.0.86 \
+    face-recognition==1.3.0 \
+    face-recognition-models==0.3.0 \
+    pillow==11.2.1 \
+    click==8.2.0 \
+    -t "$OPT_DIR/python/"
+
+# Copy completion file into package
+if [ -f "config/hellou-completion.bash" ]; then
+    cp config/hellou-completion.bash "$CONFIG_DIR/hellou-completion.bash"
+    mkdir -p "$INSTALL_DIR/share/bash-completion/completions"
+    cp config/hellou-completion.bash "$INSTALL_DIR/share/bash-completion/completions/hellou"
+fi
 
 # Create control file
 cat > "$DEBIAN_DIR/control" << EOL
@@ -42,12 +143,25 @@ Version: $VERSION
 Section: admin
 Priority: optional
 Architecture: $ARCH
-Depends: python3 (>= 3.8), python3-pip, libpam-python, libpam-dev, cmake,
- python3-opencv, python3-numpy, adduser
-Recommends: v4l-utils, python3-face-recognition
-Suggests: ir-camera-utils
+Pre-Depends: python3 (>= 3.8)
+Depends: libpam-python,
+ libpam-dev,
+ adduser,
+ python3-dev,
+ cmake,
+ build-essential,
+ libjpeg-dev,
+ libpng-dev,
+ v4l-utils,
+ python3-pip,
+ python3-setuptools,
+ python3-wheel
+Recommends: v4l-utils,
+ python3-opencv,
+ ir-camera-utils
+Suggests: libcanberra-gtk-module
 Maintainer: Hari Heman <hariheman76@gmail.com>
-Homepage: https://github.com/yourusername/hellou
+Homepage: https://github.com/HXMAN76/hellou
 Description: Face recognition authentication system for Linux
  HelloU is a modern face unlock system for Linux that enables face-based
  authentication for sudo, login, screen unlock, and other PAM-secured
@@ -59,7 +173,7 @@ Description: Face recognition authentication system for Linux
   * Privacy-focused design keeping all data local
   * Configurable security settings
  .
- This package provides the HelloU command and PAM module.
+ This package provides the HelloU command and PAM module with all required dependencies.
 EOL
 
 # Create postinst script
@@ -67,45 +181,102 @@ cat > "$DEBIAN_DIR/postinst" << 'EOL'
 #!/bin/bash
 set -e
 
-# Install Python dependencies system-wide
-pip3 install --system --target=/usr/lib/hellou/python \
-    dlib==19.24.9 \
-    numpy==2.2.6 \
-    opencv-python==4.11.0.86 \
-    face-recognition==1.3.0 \
-    face-recognition-models==0.3.0
+# Error handler
+error_handler() {
+    local line_no=$1
+    local error_code=$2
+    echo "Error on line $line_no (error code: $error_code)"
+    exit 1
+}
+
+trap 'error_handler ${LINENO} $?' ERR
+
+# Function to safely create system directories
+create_system_dir() {
+    local dir=$1
+    local owner=$2
+    local perms=$3
+    
+    if [ ! -d "$dir" ]; then
+        echo "Creating directory: $dir"
+        mkdir -p "$dir"
+    fi
+    chown "$owner" "$dir"
+    chmod "$perms" "$dir"
+}
+
+# Check Python installation
+echo "Checking Python installation..."
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "Error: Python 3 is not installed"
+    exit 1
+fi
+
+# Create necessary directories with proper ownership and permissions
+echo "Setting up system directories..."
+create_system_dir "/opt/hellou/modules" "root:root" "755"
+create_system_dir "/opt/hellou/python" "root:root" "755"
+create_system_dir "/var/lib/hellou" "root:hellou" "770"
+create_system_dir "/var/lib/hellou/users" "root:hellou" "770"
+create_system_dir "/var/lib/hellou/models" "root:hellou" "770"
+
+# Set up Python path
+echo "Configuring Python path..."
+PYTHONPATH_FILE="/etc/profile.d/hellou.sh"
+cat > "$PYTHONPATH_FILE" << 'PYPATH'
+# Added by HelloU package
+export PYTHONPATH="/opt/hellou/python:${PYTHONPATH}"
+PYPATH
+chmod 644 "$PYTHONPATH_FILE"
+
+# Set up bash completion
+echo "Setting up bash completion..."
+COMP_DIR="/usr/share/bash-completion/completions"
+if [ ! -d "$COMP_DIR" ]; then
+    mkdir -p "$COMP_DIR"
+fi
+
+if [ -f "/etc/hellou/hellou-completion.bash" ]; then
+    cp -f "/etc/hellou/hellou-completion.bash" "$COMP_DIR/hellou"
+    chmod 644 "$COMP_DIR/hellou"
+fi
 
 # Set up PAM configuration
+echo "Configuring PAM integration..."
 for service in sudo login gdm-password polkit-1; do
     if [ -f "/etc/pam.d/$service" ]; then
-        line="auth        sufficient    pam_python.so /usr/local/lib/hellou/modules/pam_service.py"
+        line="auth        sufficient    pam_python.so /opt/hellou/modules/pam_service.py"
         if ! grep -q "pam_python.so.*hellou" "/etc/pam.d/$service"; then
+            echo "Adding HelloU authentication to $service"
             sed -i "1a$line" "/etc/pam.d/$service"
         fi
     fi
 done
 
-# Start and enable systemd service
+# Configure systemd service
+echo "Configuring systemd service..."
 systemctl daemon-reload
-systemctl enable hellou.service
-systemctl start hellou.service
+systemctl enable hellou.service || echo "Warning: Failed to enable hellou service"
+systemctl start hellou.service || echo "Warning: Failed to start hellou service"
 
-# Create groups and permissions
+# Create groups and set permissions
+echo "Setting up user groups and permissions..."
 groupadd -f hellou
-chown -R root:hellou /var/lib/hellou
-chmod 770 /var/lib/hellou
-chmod 770 /var/lib/hellou/users
 
-# Add current sudo users to hellou group
+# Set proper ownership and permissions for key files
+chmod 755 /opt/hellou/python
+chmod 755 /opt/hellou/modules
+chmod 644 /etc/hellou/hellou.conf
+chmod 755 /usr/bin/HelloU
+
+# Add sudo users to hellou group
+echo "Adding sudo users to hellou group..."
 for user in $(getent group sudo | cut -d: -f4 | tr ',' '\n'); do
-    usermod -a -G hellou "$user"
+    usermod -a -G hellou "$user" || echo "Warning: Failed to add $user to hellou group"
 done
 
-# Install shell completion
-mkdir -p /usr/share/bash-completion/completions
-cp /usr/lib/hellou/hellou-completion.bash /usr/share/bash-completion/completions/HelloU
-
-# Create log file
+# Create and configure log file
+echo "Setting up logging..."
 touch /var/log/hellou.log
 chown root:hellou /var/log/hellou.log
 chmod 660 /var/log/hellou.log
@@ -119,110 +290,212 @@ cat > "$DEBIAN_DIR/prerm" << 'EOL'
 #!/bin/bash
 set -e
 
+echo "Preparing to remove HelloU..."
+
+# Function to safely remove files
+safe_remove() {
+    local path=$1
+    if [ -e "$path" ]; then
+        echo "Removing: $path"
+        rm -f "$path"
+    fi
+}
+
+# Function to backup user data
+backup_user_data() {
+    local src=$1
+    local dest=$2
+    if [ -d "$src" ] && [ ! -d "$dest" ]; then
+        echo "Backing up user data..."
+        mkdir -p "$dest"
+        cp -r "$src" "$dest/"
+        echo "User face data backed up to $dest"
+    fi
+}
+
 # Stop and disable systemd service
+echo "Stopping HelloU service..."
 if systemctl is-active --quiet hellou.service; then
-    systemctl stop hellou.service
+    systemctl stop hellou.service || echo "Warning: Failed to stop hellou service"
 fi
 if systemctl is-enabled --quiet hellou.service; then
-    systemctl disable hellou.service
+    systemctl disable hellou.service || echo "Warning: Failed to disable hellou service"
 fi
 
 # Remove PAM configuration
+echo "Removing PAM configuration..."
 for service in sudo login gdm-password polkit-1; do
     if [ -f "/etc/pam.d/$service" ]; then
+        echo "Removing HelloU from $service PAM configuration"
         sed -i '/pam_python.so.*hellou/d' "/etc/pam.d/$service"
     fi
 done
 
 # Remove shell completion
-rm -f /usr/share/bash-completion/completions/HelloU
+echo "Removing shell completion..."
+safe_remove "/usr/share/bash-completion/completions/HelloU"
+safe_remove "/usr/share/bash-completion/completions/hellou"
 
 # Backup user data if exists
-if [ -d /var/lib/hellou/users ] && [ ! -d /var/backups/hellou ]; then
-    mkdir -p /var/backups/hellou
-    cp -r /var/lib/hellou/users /var/backups/hellou/
-    echo "User face data backed up to /var/backups/hellou"
-fi
+backup_user_data "/var/lib/hellou/users" "/var/backups/hellou"
+
+echo "HelloU removal preparation completed"
 EOL
 
 # Make scripts executable
 chmod 755 "$DEBIAN_DIR/postinst"
 chmod 755 "$DEBIAN_DIR/prerm"
 
-# Copy files
-cp bin/face-unlock "$BIN_DIR/HelloU"
-cp -r modules/* "$LIB_DIR/modules/"
-cp config/config.ini "$CONFIG_DIR/hellou.conf"
-cp config/face-unlock.service "$SYSTEMD_DIR/hellou.service"
+# Create HelloU wrapper script
+cat > "$BIN_DIR/HelloU" << 'WRAPPER'
+#!/bin/bash
+# HelloU wrapper script
+set -e
+
+# Error handler
+error_handler() {
+    local line_no=$1
+    local error_code=$2
+    echo "Error on line $line_no (error code: $error_code)"
+    exit 1
+}
+
+trap 'error_handler ${LINENO} $?' ERR
+
+# Set up Python environment
+PYTHONPATH="/opt/hellou/python:/opt/hellou/modules:${PYTHONPATH}"
+export PYTHONPATH
+
+# Add hellou binary directory to PATH
+PATH="/opt/hellou/bin:${PATH}"
+export PATH
+
+# Check if config file exists
+if [ -f "/etc/hellou/hellou.conf" ]; then
+    CONFIG_PATH="/etc/hellou/hellou.conf"
+else
+    # Fallback to project directory for development
+    CONFIG_PATH="/home/hxman/Projects/face-recog/config/config.ini"
+    if [ ! -f "$CONFIG_PATH" ]; then
+        echo "Error: Configuration file not found"
+        exit 1
+    fi
+fi
+
+# Execute the main program
+exec python3 -c "
+import sys
+import os
+import logging
+
+# Configure logging
+logging.basicConfig(
+    filename='/var/log/hellou.log',
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+# Add Python paths
+sys.path.insert(0, '/opt/hellou/python')
+sys.path.insert(0, '/opt/hellou/modules')
+
+try:
+    from face_recognition_module import FaceUnlock
+except ImportError as e:
+    logging.error(f'Import error: {str(e)}')
+    print(f'Error: Could not import face recognition module: {str(e)}')
+    print('This may be due to missing dependencies or incorrect installation.')
+    print('Try reinstalling the package with: sudo apt-get install --reinstall hellou')
+    sys.exit(1)
+
+def main():
+    try:
+        config_path = '$CONFIG_PATH'
+        face_unlock = FaceUnlock(config_path)
+        
+        if len(sys.argv) > 1:
+            cmd = sys.argv[1]
+            if cmd == 'service':
+                # Run as background service
+                face_unlock.run_service()
+            elif cmd == 'add':
+                # Add current user's face
+                username = os.environ.get('USER', os.getlogin())
+                face_unlock.add_user(username)
+            elif cmd == 'authenticate':
+                # Authenticate current user
+                username = os.environ.get('USER', os.getlogin())
+                success = face_unlock.authenticate_user(username)
+                sys.exit(0 if success else 1)
+            elif cmd == 'remove':
+                # Remove user's face data
+                if len(sys.argv) > 2:
+                    username = sys.argv[2]
+                else:
+                    username = os.environ.get('USER', os.getlogin())
+                success = face_unlock.remove_user(username)
+                print(f'User {username} face data ' + ('removed successfully' if success else 'not found'))
+                sys.exit(0 if success else 1)
+            elif cmd == 'help' or cmd == '--help' or cmd == '-h':
+                print('HelloU - Face Recognition Authentication System')
+                print('Usage:')
+                print('  HelloU add          - Add current user face')
+                print('  HelloU remove       - Remove current user face data')
+                print('  HelloU authenticate - Authenticate current user')
+                print('  HelloU service      - Run as a background service')
+                print('  HelloU help         - Show this help message')
+            else:
+                print(f'Unknown command: {cmd}')
+                print('Run \"HelloU help\" for usage information')
+                sys.exit(1)
+        else:
+            # Default to authentication
+            username = os.environ.get('USER', os.getlogin())
+            success = face_unlock.authenticate_user(username)
+            sys.exit(0 if success else 1)
+    except Exception as e:
+        logging.error(f'Error in HelloU: {str(e)}')
+        print(f'Error: {str(e)}')
+        sys.exit(1)
+
+if __name__ == '__main__':
+    main()
+
+main()
+" "$@"
+WRAPPER
+
+chmod 755 "$BIN_DIR/HelloU"
+
+# Copy files with proper error handling
+echo "Copying module files..."
+if [ -d "modules" ]; then
+    cp -r modules/* "$OPT_DIR/modules/" || { echo "Failed to copy modules"; exit 1; }
+else
+    echo "Error: modules directory not found"
+    exit 1
+fi
+
+# Copy configuration files
+copy_file "config/config.ini" "$CONFIG_DIR/hellou.conf" "config file" || exit 1
+copy_file "config/face-unlock.service" "$SYSTEMD_DIR/hellou.service" "systemd service file" || exit 1
+copy_file "config/hellou-completion.bash" "$CONFIG_DIR/hellou-completion.bash" "bash completion file" || exit 1
+copy_file "config/hellou-completion.bash" "$OPT_DIR/config/hellou-completion.bash" "bash completion backup" || exit 1
 
 # Copy documentation
-cp README.md "$DOC_DIR/README.md"
-cp LICENSE "$DOC_DIR/copyright"
+copy_file "README.md" "$DOC_DIR/README.md" "README file" || exit 1
+copy_file "LICENSE" "$DOC_DIR/copyright" "license file" || exit 1
 
-# Create man page
-cat > "$MAN_DIR/HelloU.1" << 'MANPAGE'
-.TH HELLOU 1 "May 2025" "HelloU 1.0.0" "User Commands"
-.SH NAME
-HelloU \- Face recognition authentication system for Linux
-.SH SYNOPSIS
-.B HelloU
-[\fICOMMAND\fR] [\fIOPTIONS\fR]
-.SH DESCRIPTION
-HelloU provides face-based authentication for Linux systems, allowing face unlock
-for sudo, login, and other PAM-authenticated actions.
-.SH COMMANDS
-.TP
-.B add
-Enroll your face for recognition
-.TP
-.B test
-Test face recognition
-.TP
-.B remove
-Remove your face data
-.TP
-.B config
-Configure HelloU settings
-.SH EXAMPLES
-.TP
-HelloU add
-Enroll your face
-.TP
-HelloU test
-Test face recognition
-.TP
-HelloU config --camera /dev/video0
-Set camera device
-.SH FILES
-.TP
-.I /etc/hellou/hellou.conf
-System configuration file
-.TP
-.I /var/lib/hellou/users/
-User face data directory
-.SH AUTHOR
-Written by Hari Heman <hariheman76@gmail.com>
-.SH BUGS
-Report bugs at: https://github.com/yourusername/hellou/issues
-MANPAGE
+# Set permissions with proper error handling
+echo "Setting file permissions..."
+find "$PACKAGE_DIR" -type d -exec chmod 755 {} \; || { echo "Failed to set directory permissions"; exit 1; }
+find "$PACKAGE_DIR" -type f -exec chmod 644 {} \; || { echo "Failed to set file permissions"; exit 1; }
 
-# Compress man page
-gzip -9 "$MAN_DIR/HelloU.1"
+# Set specific permissions for executables and sensitive files
+chmod 755 "$INSTALL_DIR/bin/HelloU" || { echo "Failed to set HelloU permissions"; exit 1; }
+chmod 755 "$DEBIAN_DIR"/* || { echo "Failed to set DEBIAN script permissions"; exit 1; }
 
-# Update config.ini with system paths
-# Copy and update config file
-cp config/config.ini "$CONFIG_DIR/hellou.conf"
-sed -i 's|~/Projects/face-recog/data/models|/var/lib/hellou/models|g' "$CONFIG_DIR/hellou.conf"
-sed -i 's|~/Projects/face-recog/data/users|/var/lib/hellou/users|g' "$CONFIG_DIR/hellou.conf"
-sed -i 's|~/Projects/face-recog/face_unlock.log|/var/log/hellou.log|g' "$CONFIG_DIR/hellou.conf"
+echo "Building package..."
+dpkg-deb --build "$PACKAGE_DIR" || { echo "Failed to build package"; exit 1; }
 
-# Set permissions
-find "$PACKAGE_DIR" -type d -exec chmod 755 {} \;
-find "$PACKAGE_DIR" -type f -exec chmod 644 {} \;
-chmod 755 "$INSTALL_DIR/bin/HelloU"
-chmod 755 "$DEBIAN_DIR"/*
-
-# Build package
-dpkg-deb --build "$PACKAGE_DIR"
-
-echo "Package created: $PACKAGE_DIR.deb"
+echo "Package created successfully: $PACKAGE_DIR.deb"

@@ -1,0 +1,103 @@
+#!/bin/bash
+# Emergency uninstall script for HelloU
+# Use this script if you're locked out of sudo access due to PAM configuration issues
+
+set -e
+
+echo "==============================================================="
+echo "  HelloU Emergency Uninstall Script"
+echo "==============================================================="
+echo "This script will remove HelloU PAM configuration from your system."
+echo "Use this if you're having authentication issues that prevent access."
+echo ""
+echo "WARNING: You should run this script in recovery mode if you're locked out."
+echo "         In recovery mode, boot to the recovery option from GRUB menu"
+echo "         and select 'root shell' or similar option."
+echo ""
+
+# Check if running as root
+if [ "$EUID" -ne 0 ]; then
+    echo "Error: This script must be run as root."
+    echo "If you're locked out, reboot into recovery mode."
+    exit 1
+fi
+
+# Prompt for confirmation
+read -p "Are you sure you want to remove HelloU PAM configuration? (y/N): " confirm
+if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+    echo "Operation cancelled."
+    exit 1
+fi
+
+echo ""
+echo "Removing PAM configurations..."
+
+# Restore PAM configurations from backups or remove entries
+for service in sudo login gdm-password polkit-1; do
+    if [ -f "/etc/pam.d/$service" ]; then
+        if [ -f "/etc/pam.d/$service.hellou-backup" ]; then
+            echo "Restoring backup configuration for $service..."
+            cp -f "/etc/pam.d/$service.hellou-backup" "/etc/pam.d/$service"
+            rm -f "/etc/pam.d/$service.hellou-backup"
+        else
+            echo "Removing HelloU entries from $service configuration..."
+            sed -i '/pam_python.so.*hellou/d' "/etc/pam.d/$service"
+            sed -i '/pam_python.so.*face_recog/d' "/etc/pam.d/$service"
+            sed -i '/pam_python.so.*pam_service.py/d' "/etc/pam.d/$service"
+        fi
+        echo "✓ Fixed $service configuration"
+    fi
+done
+
+# Stopping and disabling service
+if command -v systemctl &> /dev/null; then
+    echo "Stopping HelloU service..."
+    systemctl stop hellou.service 2>/dev/null || true
+    systemctl disable hellou.service 2>/dev/null || true
+    echo "✓ Service disabled"
+fi
+
+echo "Removing HelloU package..."
+if command -v dpkg &> /dev/null; then
+    dpkg -P hellou 2>/dev/null || echo "Package removal failed - continuing with manual cleanup"
+else
+    echo "dpkg not found - continuing with manual cleanup"
+fi
+
+echo "Cleaning up system files..."
+# Remove service file
+rm -f /etc/systemd/system/hellou.service
+if command -v systemctl &> /dev/null; then
+    systemctl daemon-reload
+fi
+
+# Remove configuration and data directories (but backup user data first)
+if [ -d "/var/lib/hellou/users" ]; then
+    echo "Backing up user face data..."
+    mkdir -p /var/backups/hellou
+    cp -r /var/lib/hellou/users /var/backups/hellou/ || true
+    echo "User data backed up to /var/backups/hellou"
+fi
+
+# Remove the directories
+rm -rf /etc/hellou
+rm -rf /opt/hellou
+rm -rf /var/lib/hellou
+
+# Remove the bash completion
+rm -f /usr/share/bash-completion/completions/hellou
+
+# Remove the binary
+rm -f /usr/bin/HelloU
+
+# Remove hellou group if exists
+if getent group hellou >/dev/null; then
+    echo "Removing hellou group..."
+    groupdel hellou
+fi
+
+echo ""
+echo "✅ HelloU has been successfully uninstalled."
+echo "Your system should now be restored to normal operation."
+echo "A backup of your face data is saved at: /var/backups/hellou"
+echo "Please reboot your system to ensure all changes take effect."
